@@ -1,0 +1,25 @@
+{
+  "name": "radar_chart",
+  "version": "2.0.0",
+  "description": "D3 radar chart custom visualization for the v2-radar-chart-visualisation Splunk app.",
+  "main": "visualization.js",
+  "scripts": {
+    "build": "$SPLUNK_HOME/bin/splunk cmd node ./node_modules/webpack/bin/webpack.js",
+    "build-local": "node ./node_modules/webpack/bin/webpack.js",
+    "devbuild": "$SPLUNK_HOME/bin/splunk cmd node ./node_modules/webpack/bin/webpack.js --progress",
+    "watch": "$SPLUNK_HOME/bin/splunk cmd node ./node_modules/webpack/bin/webpack.js -d --watch --progress"
+  },
+  "author": "adamliq",
+  "license": "MIT",
+  "devDependencies": {
+    "imports-loader": "^0.6.5",
+    "webpack": "^1.12.6",
+    "babel-polyfill": "^6.26.0"
+  },
+  "dependencies": {
+    "jquery": "^3.7.0",
+    "underscore": "^1.13.6",
+    "d3": "^3.5.12",
+    "brfs": "^2.0.2"
+  }
+}
