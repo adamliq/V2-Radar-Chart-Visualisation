@@ -17,3 +17,10 @@ tar -czf v2-radar-chart-visualisation.tgz --exclude='.DS_Store' v2-radar-chart-v
 
 The app has been validated with the official `splunk-appinspect` tool
 (precert and cloud modes) with no failures or errors.
+
+`app.conf` sets `check_for_updates = 1` since this app is intended for
+Splunkbase distribution. AppInspect raises one expected warning
+(`check_for_updates_disabled`) when run standalone, because it can't tell
+from the package alone that it's Splunkbase-bound rather than a private
+app — that warning does not apply once the app is actually listed on
+Splunkbase.
