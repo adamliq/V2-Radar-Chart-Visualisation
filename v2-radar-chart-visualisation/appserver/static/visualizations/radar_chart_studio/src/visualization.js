@@ -10,12 +10,17 @@
  * engine itself (vendor/d3-radar-chart.js) and the category/axis
  * grouping logic are carried over unchanged in behavior.
  */
-import * as d3 from 'd3';
 import { VisualizationAPI } from '@splunk/dashboard-studio-extension';
+// d3-instance.js must come before d3-legend.js: it sets globalThis.d3 to a
+// mutable object, which that (unmodified, browserify-bundled) vendor file
+// expects to already exist and adds its `.legend` property onto.
+import d3 from './vendor/d3-instance.js';
+import './vendor/d3-legend.js';
 import RadarChart from './vendor/d3-radar-chart.js';
 import './visualization.css';
 
-const REQUIRED_FIELDS = ['key', 'axis', 'value', 'keyColor'];
+const REQUIRED_FIELDS = ['key', 'axis', 'value'];
+const ALLOWED_FIELDS = [...REQUIRED_FIELDS, 'keyColor'];
 
 // The classic viz hardcoded light-theme-only defaults (e.g. a white axis
 // line, near-black legend text). Dashboard Studio supports a real dark
@@ -52,13 +57,20 @@ const rootEl = document.getElementById('root') || document.body;
 const container = document.createElement('div');
 container.className = 'radar-chart-studio-container';
 container.setAttribute('role', 'img');
+container.setAttribute('aria-label', 'Radar chart');
 rootEl.appendChild(container);
 
 function showMessage(message) {
     container.replaceChildren();
+    container.setAttribute('aria-label', message);
     const el = document.createElement('div');
     el.className = 'radar-chart-studio-empty';
     el.textContent = message;
+    // Placeholder text needs its own theme-aware color: it's plain DOM, not
+    // part of the D3-rendered chart, and the classic viz's #737373 default
+    // falls to ~3.3:1 contrast (fails WCAG AA for normal text) on a dark
+    // panel background.
+    el.style.color = (THEME_DEFAULTS[state.theme] || THEME_DEFAULTS.light).axesLabelFontColor;
     container.appendChild(el);
 }
 
@@ -81,10 +93,27 @@ function toRows(data) {
 
 function validateFields(fieldNames) {
     fieldNames.forEach((name) => {
-        if (!REQUIRED_FIELDS.includes(name)) {
+        if (!ALLOWED_FIELDS.includes(name)) {
             throw new Error(`Invalid field detected: ${name}; required fields: key, axis, value`);
         }
     });
+    const missing = REQUIRED_FIELDS.filter((name) => !fieldNames.includes(name));
+    if (missing.length) {
+        throw new Error(`Missing required field(s): ${missing.join(', ')}`);
+    }
+}
+
+// Studio's number editor can hand back an empty string (cleared input) or
+// leave a key unset even where optionsSchema declares a default - unlike
+// the classic viz's `|| default`, `?? default` doesn't catch NaN.
+function numberOption(value, fallback) {
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function intOption(value, fallback) {
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
 }
 
 // Mirrors the classic viz's `category` helper (src/radar_chart.js), including
@@ -176,26 +205,26 @@ function render() {
     const themeDefaults = THEME_DEFAULTS[state.theme] || THEME_DEFAULTS.light;
     const opts = state.options || {};
 
-    const maxValue = parseFloat(opts.maxValue ?? 1);
-    const levels = parseInt(opts.levels ?? 8, 10);
+    const maxValue = numberOption(opts.maxValue, 1);
+    const levels = intOption(opts.levels, 8);
     const format = opts.format ?? '';
     const isRounded = opts.isRounded ?? true;
     const legendEnabled = opts.legendEnabled ?? true;
-    const legendSymbol = opts.legendSymbol ?? 'cross';
-    const legendToggleSymbol = opts.legendToggleSymbol ?? 'circle';
-    const legendFontSize = opts.legendFontSize ?? 12;
-    const legendPositionX = opts.legendPositionX ?? 25;
-    const legendPositionY = opts.legendPositionY ?? 25;
-    const legendFontColor = opts.legendFontColor ?? themeDefaults.legendFontColor;
-    const axesLegendFontSize = opts.axesLegendFontSize ?? 12;
-    const axesLabelFontSize = opts.axesLabelFontSize ?? 12;
-    const axesLineColor = opts.axesLineColor ?? themeDefaults.axesLineColor;
-    const axesLabelFontColor = opts.axesLabelFontColor ?? themeDefaults.axesLabelFontColor;
-    const axesLegendFontColor = opts.axesLegendFontColor ?? themeDefaults.axesLegendFontColor;
-    const circlesColor = opts.circlesColor ?? '#CDCDCD';
-    const circlesFillColor = opts.circlesFillColor ?? '#CDCDCD';
-    const areasOpacity = parseFloat(opts.areasOpacity ?? 0.35);
-    const circlesOpacity = parseFloat(opts.circlesOpacity ?? 0.1);
+    const legendSymbol = opts.legendSymbol || 'cross';
+    const legendToggleSymbol = opts.legendToggleSymbol || 'circle';
+    const legendFontSize = intOption(opts.legendFontSize, 12);
+    const legendPositionX = intOption(opts.legendPositionX, 25);
+    const legendPositionY = intOption(opts.legendPositionY, 25);
+    const legendFontColor = opts.legendFontColor || themeDefaults.legendFontColor;
+    const axesLegendFontSize = intOption(opts.axesLegendFontSize, 12);
+    const axesLabelFontSize = intOption(opts.axesLabelFontSize, 12);
+    const axesLineColor = opts.axesLineColor || themeDefaults.axesLineColor;
+    const axesLabelFontColor = opts.axesLabelFontColor || themeDefaults.axesLabelFontColor;
+    const axesLegendFontColor = opts.axesLegendFontColor || themeDefaults.axesLegendFontColor;
+    const circlesColor = opts.circlesColor || '#CDCDCD';
+    const circlesFillColor = opts.circlesFillColor || '#CDCDCD';
+    const areasOpacity = numberOption(opts.areasOpacity, 0.35);
+    const circlesOpacity = numberOption(opts.circlesOpacity, 0.1);
 
     if (!isInitializedDom) {
         // Only clear the container (which may hold a leftover "no data"/error
@@ -252,6 +281,39 @@ function render() {
     const containerSel = d3.select(container);
     containerSel.selectAll('.label').style('font-size', `${legendFontSize}px`);
     containerSel.selectAll('.rcAxisLabel').style('font-size', `${axesLabelFontSize}px`);
+
+    if (isTrue(legendEnabled)) {
+        makeLegendKeyboardAccessible(containerSel, categories);
+    }
+}
+
+// The legend's click-to-toggle-visibility behavior (d3-legend.js + the
+// vendor engine's internal legendClick) is wired to mouse clicks only.
+// `update()` replaces the legend's DOM every render, so re-applying these
+// attributes/listeners each time (rather than once) is required, and safe -
+// d3's `.attr()`/`.on()` replace rather than stack per element.
+function makeLegendKeyboardAccessible(containerSel, categories) {
+    const keys = Object.keys(categories);
+    containerSel
+        .selectAll('.cell')
+        .attr('tabindex', '0')
+        .attr('role', 'button')
+        .attr('aria-label', (d, i) => `Toggle ${keys[i] ?? 'series'} visibility`)
+        .each(function attachKeydown() {
+            // Not d3's `.on('keydown', ...)`: that reads the native event
+            // from `d3.event`, which d3 v3 sets on *its own* internal d3
+            // object during dispatch - not on the mutable copy this file
+            // imports (see d3-instance.js's comment on why there's a copy
+            // at all), so `d3.event` read from here is always stale/null.
+            // Assigning `.onkeydown` (vs. addEventListener) is also what
+            // makes this idempotent to redo on every render.
+            this.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
+                    event.preventDefault();
+                    this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                }
+            };
+        });
 }
 
 VisualizationAPI.addDataSourcesListener(

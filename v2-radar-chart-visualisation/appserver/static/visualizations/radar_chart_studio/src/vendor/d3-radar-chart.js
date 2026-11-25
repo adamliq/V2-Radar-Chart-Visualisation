@@ -3,7 +3,13 @@
 // classic build relied on webpack's imports-loader to inject a global
 // `d3`, and on sloppy-mode implicit-global assignment for `RadarChart`,
 // neither of which esbuild's ESM output provides).
-import * as d3 from 'd3';
+//
+// Imports the shared mutable instance (./d3-instance.js), not the 'd3'
+// package directly: this file's `if (d3.legend)` check needs to see the
+// `.legend` property d3-legend.js adds, and a plain `import * as d3 from
+// 'd3'` namespace object can't have properties added to it (see
+// d3-instance.js for why).
+import d3 from './d3-instance.js';
 
 export default function RadarChart(format) {
 
