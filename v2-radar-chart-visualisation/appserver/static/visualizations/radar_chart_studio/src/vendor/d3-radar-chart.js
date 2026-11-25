@@ -3,13 +3,18 @@
 // classic build relied on webpack's imports-loader to inject a global
 // `d3`, and on sloppy-mode implicit-global assignment for `RadarChart`,
 // neither of which esbuild's ESM output provides).
-//
-// Imports the shared mutable instance (./d3-instance.js), not the 'd3'
-// package directly: this file's `if (d3.legend)` check needs to see the
-// `.legend` property d3-legend.js adds, and a plain `import * as d3 from
-// 'd3'` namespace object can't have properties added to it (see
-// d3-instance.js for why).
-import d3 from './d3-instance.js';
+import * as d3 from 'd3';
+
+// d3 v3's d3.format(spec) throws synchronously on an unparseable spec, and
+// the "Number format" field is free text a user can type anything into -
+// fall back to the default (empty-spec) formatter instead of throwing.
+function safeFormat(spec) {
+    try {
+        return d3.format(spec);
+    } catch (err) {
+        return d3.format('');
+    }
+}
 
 export default function RadarChart(format) {
 
@@ -119,6 +124,18 @@ export default function RadarChart(format) {
    // functions which should be accessible via ACCESSORS
    var update;
 
+   // Dashboard Studio drilldown support: fires once per radarInvisibleCircle
+   // DOM node the *first* time it's created (see the .enter() block below),
+   // not on every render - circles are reused across renders whenever the
+   // category/axis set stays the same (the common case for a live,
+   // auto-refreshing search), so this keeps the number of calls bounded by
+   // how often that set actually changes, not by how often the chart
+   // re-renders. Deliberately separate from the `events` object above:
+   // chart.events() replaces a whole category's handlers on assignment
+   // (see its accessor below), and radarInvisibleCircle's defaults
+   // (tooltip_show/tooltip_hide) aren't externally reachable to re-supply.
+   var onPointCreated;
+
    // helper functions
    var tooltip;
 
@@ -129,7 +146,7 @@ export default function RadarChart(format) {
    //var Format = d3.format('%'); // Percentage formatting
    //var Format = d3.format(""); // Percentage formatting
    //var Format = d3.format(options.format); // Percentage formatting
-   var Format = d3.format(format); // Percentage formatting
+   var Format = safeFormat(format); // Percentage formatting
    //console.log(Format);
    //var Format = d3.format(options.format); // Percentage formatting
    var transition_time = 0;
@@ -178,7 +195,7 @@ export default function RadarChart(format) {
             update = function() {
 
                 var duration = transition_time;
-                var Format = d3.format(options.format); // Percentage formatting
+                var Format = safeFormat(options.format); // Percentage formatting
 
                 dataCalcs();
                 radialCalcs();
@@ -475,7 +492,10 @@ export default function RadarChart(format) {
                       if (events.radarInvisibleCircle.mouseover) events.radarInvisibleCircle.mouseover(d, i, this); 
                    })
                    .on("mouseout", function(d, i) {
-                      if (events.radarInvisibleCircle.mouseout) events.radarInvisibleCircle.mouseout(d, i, this); 
+                      if (events.radarInvisibleCircle.mouseout) events.radarInvisibleCircle.mouseout(d, i, this);
+                   })
+                   .each(function() {
+                      if (onPointCreated) onPointCreated(this);
                    })
 
                 update_radarInvisibleCircle.exit().remove();
@@ -485,43 +505,63 @@ export default function RadarChart(format) {
                    .attr("cy", function(d, i){ return calcY(d.value, 0, i); })
 
                 if (options.legend.display) {
-                   var shape = d3.svg.symbol().type(options.legend.symbol).size(150)();
+                   // Hand-rolled in place of the (now removed) d3-legend.js
+                   // dependency: a 2015, unmaintained third-party library
+                   // that, on top of needing a global `d3` this build has no
+                   // natural way to provide (see d3-instance.js), turned out
+                   // to have its own latent bug (see git history). This
+                   // keeps the same per-cell contract - click/hover routed
+                   // through events.legend.* exactly as before, so
+                   // legendClick/legendMouseover/areaMouseout and anything
+                   // wired up via chart.events() still work unchanged - and
+                   // drops the shape/size/useStroke/gradient features that
+                   // library offered but this chart never used.
+                   var legendRowHeight = 20;
+                   var legendShapeSize = 90;
+                   var legendShapeOffsetX = 8;
+                   var legendLabelOffsetX = 20;
+
                    var colorScale = d3.scale.ordinal()
                       .domain(_data.map(function(m) { return m._i; }))
                       .range(_data.map(function(m) { return setColor(m); }));
 
-                   if (d3.legend) {
-                      var legendOrdinal = d3.legend.color()
-                         .shape("path", shape)
-                         .fontColor(options.legend.fontColor)
-                         .shapePadding(10)
-                         .scale(colorScale)
-                         .labels(colorScale.domain().map(function(m) { return keyScale(m); } ))
-                         .on("cellclick", function(d, i) { 
-                            if (events.legend.mouseclick) events.legend.mouseclick(d, i, this); 
-                         })
-                         .on("cellover", function(d, i) { 
-                            if (events.legend.mouseover) events.legend.mouseover(d, i, this); 
-                         })
-                         .on("cellout", function(d, i) { 
-                            if (events.legend.mouseout) events.legend.mouseout(d, i, this); 
-                         });
-    
-                      legend_node
-                        .call(legendOrdinal);
+                   var update_legendCell = legend_node.selectAll("." + options.class + "LegendCell")
+                      .data(colorScale.domain());
 
-                      legend_node.selectAll('.cell')
-                        .attr('gen', function(d, i) { 
-                           if (legend_toggles[d] == true) {
-                              var shape = d3.svg.symbol().type(options.legend.toggle).size(150)()
-                           } else {
-                              var shape = d3.svg.symbol().type(options.legend.symbol).size(150)()
-                           }
-                           d3.select(this).select('path').attr('d', function() { return shape; });
-                           return legend_toggles[d];
-                        });
+                   var legendCellEnter = update_legendCell.enter()
+                      .append("g")
+                      .attr("class", options.class + "LegendCell cell")
+                      .style("cursor", "pointer");
+                   legendCellEnter.append("path").attr("class", "swatch");
+                   legendCellEnter.append("text").attr("class", "label").attr("dy", "0.35em");
 
-                   }
+                   update_legendCell.exit().remove();
+
+                   update_legendCell
+                      .attr("transform", function(d, i) { return "translate(0," + (i * legendRowHeight) + ")"; })
+                      .on("click", function(d, i) {
+                         if (events.legend.mouseclick) events.legend.mouseclick(d, i, this);
+                      })
+                      .on("mouseover", function(d, i) {
+                         if (events.legend.mouseover) events.legend.mouseover(d, i, this);
+                      })
+                      .on("mouseout", function(d, i) {
+                         if (events.legend.mouseout) events.legend.mouseout(d, i, this);
+                      });
+
+                   update_legendCell.select("path.swatch")
+                      .attr("transform", "translate(" + legendShapeOffsetX + "," + (legendRowHeight / 2) + ")")
+                      .attr("fill", function(d) { return colorScale(d); })
+                      .attr("d", function(d) {
+                         var symbolType = legend_toggles[d] ? options.legend.toggle : options.legend.symbol;
+                         return d3.svg.symbol().type(symbolType).size(legendShapeSize)();
+                      });
+
+                   update_legendCell.select("text.label")
+                      .attr("x", legendLabelOffsetX)
+                      .attr("y", legendRowHeight / 2)
+                      .attr("fill", options.legend.fontColor)
+                      .text(function(d) { return keyScale(d); });
                }
 
             }
@@ -703,6 +743,14 @@ export default function RadarChart(format) {
         for (var k=0; k < fKeys.length; k++) {
            if (eKeys.indexOf(fKeys[k]) >= 0) events[fKeys[k]] = functions[fKeys[k]];
         }
+        return chart;
+   }
+
+   // See the onPointCreated declaration above for why this isn't routed
+   // through chart.events() instead.
+   chart.onPointCreated = function(fn) {
+        if (!arguments.length) return onPointCreated;
+        onPointCreated = fn;
         return chart;
    }
 

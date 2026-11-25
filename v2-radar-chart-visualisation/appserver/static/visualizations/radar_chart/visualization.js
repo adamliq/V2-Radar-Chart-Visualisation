@@ -32136,7 +32136,7 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	      var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
 	      var cell = svg.selectAll(".cell").data(type.data),
-	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
 	        shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
 	        shapes = cell.select("g.cell " + shape);
 
@@ -32474,7 +32474,7 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	      var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
 	      var cell = svg.selectAll(".cell").data(type.data),
-	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
 	        shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
 	        shapes = cell.select("g.cell " + shape);
 
@@ -32665,7 +32665,7 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	      var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
 	      var cell = svg.selectAll(".cell").data(type.data),
-	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+	        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
 	        shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
 	        shapes = cell.select("g.cell " + shape);
 
@@ -33212,7 +33212,7 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	                      return options.areas.filter.indexOf(d.key) >= 0 ? 0 : 1;
 	                   });
 
-	                update_radarCircle = update_blobWrapper.selectAll('.' + options.class + 'RadarCircle')
+	                var update_radarCircle = update_blobWrapper.selectAll('.' + options.class + 'RadarCircle')
 	                   .data(function(d, i) { return add_index(d._i, d.key, d.values) });
 
 	                update_radarCircle.enter()
@@ -33253,7 +33253,7 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	                   .style('opacity', 0)
 	                   .remove()
 
-	                update_radarInvisibleCircle = update_blobCircleWrapper.selectAll("." + options.class + "RadarInvisibleCircle")
+	                var update_radarInvisibleCircle = update_blobCircleWrapper.selectAll("." + options.class + "RadarInvisibleCircle")
 	                   .data(function(d, i) { return add_index(d._i, d.key, d.values); });
 
 	                update_radarInvisibleCircle.enter()
@@ -33810,8 +33810,8 @@ define(["api/SplunkVisualizationBase","api/SplunkVisualizationUtils"], function(
 	         var labels = getAxisLabels(_data);
 	         chart_node.select('[key="'+d.axis+'"]').select('text').style('opacity', 1);
 	         var value = d.original_value ? d.original_value : Format(d.value);
-	         newX =  parseFloat(d3.select(self).attr('cx')) - 10;
-	         newY =  parseFloat(d3.select(self).attr('cy')) - 10;
+	         var newX =  parseFloat(d3.select(self).attr('cx')) - 10;
+	         var newY =  parseFloat(d3.select(self).attr('cy')) - 10;
 	            
 	         tooltip
 	          .attr('x', newX)

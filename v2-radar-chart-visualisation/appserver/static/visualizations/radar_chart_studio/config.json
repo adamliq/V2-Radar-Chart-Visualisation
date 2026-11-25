@@ -2,9 +2,9 @@
   "showTitleAndDescription": true,
   "includeInToolbar": true,
   "includeInVizSwitcher": true,
-  "showDrilldown": false,
+  "showDrilldown": true,
   "canSetTokens": [],
-  "hasEventHandlers": false,
+  "hasEventHandlers": true,
   "config": {
     "name": "Radar Chart (Dashboard Studio)",
     "description": "Plot multivariate data on a two dimensional chart across axes.",

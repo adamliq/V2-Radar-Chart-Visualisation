@@ -10,12 +10,8 @@
  * engine itself (vendor/d3-radar-chart.js) and the category/axis
  * grouping logic are carried over unchanged in behavior.
  */
+import * as d3 from 'd3';
 import { VisualizationAPI } from '@splunk/dashboard-studio-extension';
-// d3-instance.js must come before d3-legend.js: it sets globalThis.d3 to a
-// mutable object, which that (unmodified, browserify-bundled) vendor file
-// expects to already exist and adds its `.legend` property onto.
-import d3 from './vendor/d3-instance.js';
-import './vendor/d3-legend.js';
 import RadarChart from './vendor/d3-radar-chart.js';
 import './visualization.css';
 
@@ -180,7 +176,10 @@ function isTrue(value) {
 }
 
 function render() {
-    if (state.loading) return;
+    if (state.loading) {
+        showMessage('Loading...');
+        return;
+    }
     if (state.width <= 0 || state.height <= 0) return;
     if (!state.data) {
         showMessage('No data available');
@@ -237,6 +236,7 @@ function render() {
         container.replaceChildren();
         radarChart = new RadarChart(format);
         d3.select(container).call(radarChart);
+        radarChart.onPointCreated(registerPointDrilldown);
         isInitializedDom = true;
     }
 
@@ -301,12 +301,15 @@ function makeLegendKeyboardAccessible(containerSel, categories) {
         .attr('aria-label', (d, i) => `Toggle ${keys[i] ?? 'series'} visibility`)
         .each(function attachKeydown() {
             // Not d3's `.on('keydown', ...)`: that reads the native event
-            // from `d3.event`, which d3 v3 sets on *its own* internal d3
-            // object during dispatch - not on the mutable copy this file
-            // imports (see d3-instance.js's comment on why there's a copy
-            // at all), so `d3.event` read from here is always stale/null.
-            // Assigning `.onkeydown` (vs. addEventListener) is also what
-            // makes this idempotent to redo on every render.
+            // from `d3.event`, which was always null here - traced to d3 v3
+            // setting it on its own internal reference to the d3 object
+            // during dispatch, which this file's own import of 'd3' doesn't
+            // reliably alias (confirmed while this file briefly went through
+            // a mutable copy of d3 for an unrelated reason - see git history
+            // around d3-instance.js). Reading the real native event directly
+            // sidesteps the question entirely. Assigning `.onkeydown` (vs.
+            // addEventListener) is also what makes this idempotent to redo
+            // on every render.
             this.onkeydown = (event) => {
                 if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
                     event.preventDefault();
@@ -314,6 +317,38 @@ function makeLegendKeyboardAccessible(containerSel, categories) {
                 }
             };
         });
+}
+
+// Wired once via radarChart.onPointCreated (see the one-time init block in
+// render()), which itself only fires once per radarInvisibleCircle DOM node
+// - the first time it's created, not on every render (see its declaration
+// in d3-radar-chart.js). addDrilldownListener has no documented way to
+// unregister a node, so this avoids calling it on every render, which would
+// register the same node repeatedly for as long as the chart stays open.
+//
+// Reads the node's *current* bound datum via d3.select(node).datum() inside
+// each payloadCallback, rather than closing over the datum from when the
+// node was created: circles are reused (not recreated) across renders when
+// the category/axis set doesn't change, so a value captured at creation
+// time would go stale the next time that same circle's value changes.
+//
+// One caveat this hasn't been possible to verify outside a real Dashboard
+// Studio instance: whether Studio itself garbage-collects a drilldown
+// registration once its node is later removed (e.g. a category disappears
+// from the search results). If it doesn't, registrations would accumulate,
+// bounded by how often the category/axis set changes - not by how often
+// the chart re-renders - over the life of the dashboard.
+function registerPointDrilldown(node) {
+    ['key', 'axis', 'value'].forEach((field) => {
+        VisualizationAPI.addDrilldownListener({
+            node,
+            action: field,
+            payloadCallback: () => {
+                const datum = d3.select(node).datum() || {};
+                return { name: field, value: datum[field] };
+            },
+        });
+    });
 }
 
 VisualizationAPI.addDataSourcesListener(
