@@ -27,7 +27,7 @@ module.exports = function(){
       var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
       var cell = svg.selectAll(".cell").data(type.data),
-        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
         shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
         shapes = cell.select("g.cell " + shape);
 
@@ -365,7 +365,7 @@ module.exports =  function(){
       var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
       var cell = svg.selectAll(".cell").data(type.data),
-        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
         shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
         shapes = cell.select("g.cell " + shape);
 
@@ -556,7 +556,7 @@ module.exports = function(){
       var type = helper.d3_calcType(scale, ascending, cells, labels, labelFormat, labelDelimiter);
 
       var cell = svg.selectAll(".cell").data(type.data),
-        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6);
+        cellEnter = cell.enter().append("g", ".cell").attr("class", "cell").style("opacity", 1e-6),
         shapeEnter = cellEnter.append(shape).attr("class", "swatch"),
         shapes = cell.select("g.cell " + shape);
 
