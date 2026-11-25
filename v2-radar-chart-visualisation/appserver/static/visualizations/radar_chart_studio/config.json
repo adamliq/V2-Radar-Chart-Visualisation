@@ -1,0 +1,131 @@
+{
+  "showTitleAndDescription": true,
+  "includeInToolbar": true,
+  "includeInVizSwitcher": true,
+  "showDrilldown": false,
+  "canSetTokens": [],
+  "hasEventHandlers": false,
+  "config": {
+    "name": "Radar Chart (Dashboard Studio)",
+    "description": "Plot multivariate data on a two dimensional chart across axes.",
+    "category": "Custom",
+    "icon": null,
+    "dataContract": {
+      "requiredDataSources": ["primary"],
+      "optionalDataSources": []
+    },
+    "size": {
+      "initialWidth": 500,
+      "initialHeight": 500
+    },
+    "optionsSchema": {
+      "maxValue": { "type": "number", "default": 1 },
+      "levels": { "type": "number", "default": 8 },
+      "format": { "type": "string", "default": "" },
+      "isRounded": { "type": "boolean", "default": true },
+      "legendEnabled": { "type": "boolean", "default": true },
+      "legendSymbol": { "type": "string", "default": "cross" },
+      "legendToggleSymbol": { "type": "string", "default": "circle" },
+      "legendFontSize": { "type": "number", "default": 12 },
+      "legendPositionX": { "type": "number", "default": 25 },
+      "legendPositionY": { "type": "number", "default": 25 },
+      "legendFontColor": { "type": "string", "default": "#000000" },
+      "axesLegendFontSize": { "type": "number", "default": 12 },
+      "axesLabelFontSize": { "type": "number", "default": 12 },
+      "axesLineColor": { "type": "string", "default": "#dddddd" },
+      "axesLabelFontColor": { "type": "string", "default": "#737373" },
+      "axesLegendFontColor": { "type": "string", "default": "#000000" },
+      "circlesColor": { "type": "string", "default": "#CDCDCD" },
+      "circlesFillColor": { "type": "string", "default": "#CDCDCD" },
+      "areasOpacity": { "type": "number", "default": 0.35 },
+      "circlesOpacity": { "type": "number", "default": 0.1 }
+    },
+    "editorConfig": [
+      {
+        "label": "General",
+        "layout": [
+          [
+            { "label": "Max value", "editor": "editor.number", "option": "maxValue" },
+            { "label": "Levels", "editor": "editor.number", "option": "levels" }
+          ],
+          [
+            { "label": "Number format", "editor": "editor.text", "option": "format" }
+          ],
+          [
+            { "label": "Rounded lines", "editor": "editor.checkbox", "option": "isRounded" }
+          ],
+          [
+            { "label": "Areas opacity", "editor": "editor.number", "option": "areasOpacity" },
+            { "label": "Circles opacity", "editor": "editor.number", "option": "circlesOpacity" }
+          ],
+          [
+            { "label": "Circles color", "editor": "editor.color", "option": "circlesColor" },
+            { "label": "Circles fill color", "editor": "editor.color", "option": "circlesFillColor" }
+          ]
+        ]
+      },
+      {
+        "label": "Legend",
+        "layout": [
+          [
+            { "label": "Show legend", "editor": "editor.checkbox", "option": "legendEnabled" }
+          ],
+          [
+            {
+              "label": "Legend symbol",
+              "editor": "editor.select",
+              "option": "legendSymbol",
+              "editorProps": {
+                "values": [
+                  { "label": "Cross", "value": "cross" },
+                  { "label": "Circle", "value": "circle" },
+                  { "label": "Diamond", "value": "diamond" },
+                  { "label": "Triangle up", "value": "triangle-up" },
+                  { "label": "Triangle down", "value": "triangle-down" }
+                ]
+              }
+            },
+            {
+              "label": "Toggle symbol",
+              "editor": "editor.select",
+              "option": "legendToggleSymbol",
+              "editorProps": {
+                "values": [
+                  { "label": "Circle", "value": "circle" },
+                  { "label": "Cross", "value": "cross" },
+                  { "label": "Diamond", "value": "diamond" },
+                  { "label": "Triangle up", "value": "triangle-up" },
+                  { "label": "Triangle down", "value": "triangle-down" }
+                ]
+              }
+            }
+          ],
+          [
+            { "label": "Font size", "editor": "editor.number", "option": "legendFontSize" },
+            { "label": "Font color", "editor": "editor.color", "option": "legendFontColor" }
+          ],
+          [
+            { "label": "Position X", "editor": "editor.number", "option": "legendPositionX" },
+            { "label": "Position Y", "editor": "editor.number", "option": "legendPositionY" }
+          ]
+        ]
+      },
+      {
+        "label": "Axes",
+        "layout": [
+          [
+            { "label": "Axes line color", "editor": "editor.color", "option": "axesLineColor" }
+          ],
+          [
+            { "label": "Legend font size", "editor": "editor.number", "option": "axesLegendFontSize" },
+            { "label": "Legend font color", "editor": "editor.color", "option": "axesLegendFontColor" }
+          ],
+          [
+            { "label": "Label font size", "editor": "editor.number", "option": "axesLabelFontSize" },
+            { "label": "Label font color", "editor": "editor.color", "option": "axesLabelFontColor" }
+          ]
+        ]
+      }
+    ]
+  }
+}

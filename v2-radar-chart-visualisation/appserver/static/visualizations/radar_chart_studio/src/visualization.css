@@ -1,0 +1,28 @@
+/*
+ * CSS for the radar_chart_studio Dashboard Studio visualization.
+ * Injected into the sandboxed iframe by the build — no <link> tag needed.
+ */
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.radar-chart-studio-container {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.radar-chart-studio-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 13px;
+    color: #737373;
+}

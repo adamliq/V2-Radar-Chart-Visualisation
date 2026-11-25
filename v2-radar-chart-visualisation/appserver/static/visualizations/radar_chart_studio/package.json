@@ -1,0 +1,20 @@
+{
+  "name": "radar_chart_studio",
+  "version": "2.1.0",
+  "description": "Dashboard Studio-native D3 radar chart visualization for the v2-radar-chart-visualisation Splunk app.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:prod": "NODE_ENV=production node build.mjs",
+    "dev": "node build.mjs --watch"
+  },
+  "author": "adamliq",
+  "license": "MIT",
+  "devDependencies": {
+    "@splunk/dashboard-studio-extension": "^1.0.1",
+    "esbuild": "^0.27.3"
+  },
+  "dependencies": {
+    "d3": "^3.5.17"
+  }
+}

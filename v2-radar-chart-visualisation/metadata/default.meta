@@ -39,3 +39,6 @@ export = system
 # Un-comment the stanza below to make the standin visualization available to all apps.
 [visualizations/radar_chart]
 export = system
+
+[visualizations/radar_chart_studio]
+export = system

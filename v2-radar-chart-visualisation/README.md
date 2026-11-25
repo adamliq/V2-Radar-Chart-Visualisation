@@ -4,6 +4,18 @@ A Splunk custom visualization app (id: `v2-radar-chart-visualisation`) based on 
 Custom Radar Chart Visualization by Scott Haskell, repackaged and updated to be Splunkbase /
 AppInspect compliant.
 
+This app ships two visualizations built on the same D3 radar chart engine:
+
+- **`radar_chart`** - the classic visualization, for Simple XML dashboards and reports (any
+  supported Splunk version).
+- **`radar_chart_studio`** - a Dashboard Studio-native visualization built on
+  `@splunk/dashboard-studio-extension`, for Dashboard Studio dashboards. Requires Splunk
+  Enterprise 10.4+ or an equivalent Splunk Cloud Platform release. See
+  `appserver/static/visualizations/radar_chart_studio/README.md` for details, including what
+  changed in the port.
+
+Both read the same `key`/`axis`/`value`/`keyColor` search results described below.
+
 # Synopsis
 Plot multivariate data on a two dimensional chart across axes.
 
