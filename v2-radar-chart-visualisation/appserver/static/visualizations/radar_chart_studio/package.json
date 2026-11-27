@@ -1,6 +1,6 @@
 {
   "name": "radar_chart_studio",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Dashboard Studio-native D3 radar chart visualization for the v2-radar-chart-visualisation Splunk app.",
   "type": "module",
   "scripts": {

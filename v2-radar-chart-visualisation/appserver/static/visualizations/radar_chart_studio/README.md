@@ -150,12 +150,35 @@ the category/axis set changes over the dashboard's lifetime, not by how
 often it re-renders, per the above - but still worth watching for on a
 long-running, frequently-reconfigured dashboard.
 
+## Export
+
+Two buttons in the top-right corner of the chart (toggle with the "Show
+export buttons" format option) download the current render as `.svg` or
+`.png` - a direct serialization of the chart's own `<svg>` for the former,
+drawn into an offscreen canvas and read back out for the latter. No server
+round-trip, no added dependency.
+
+**Caveat**: like the drilldown caveat above, this hasn't been possible to
+verify inside a real Dashboard Studio instance - triggering a file download
+from inside its sandboxed iframe needs the sandbox to permit it (the
+`download` attribute on an anchor needs `allow-downloads` or no sandbox
+restriction at all). The test suite confirms this code builds a correct
+SVG/PNG blob and requests the download; it can't confirm Studio's real
+sandbox lets the browser carry it through.
+
 ## Accessibility
 
-- The chart container has `role="img"` with a text `aria-label` (also used
-  for the no-data/error placeholder states).
+- The chart container has `role="group"` (not `role="img"` - it holds real
+  interactive controls, which an image role would hide from assistive tech)
+  with a text `aria-label` summarizing the categories and axes being
+  compared (also used for the no-data/error placeholder states).
 - The legend's click-to-toggle-visibility is keyboard-reachable: tab to a
   legend entry, Enter or Space toggles it, same as clicking it.
+- Each data point (the invisible hit-target circles) is keyboard-reachable
+  too: tab to one, its `aria-label` reads out its category/axis/value,
+  focus/blur show and hide the same tooltip a mouse hover would, and
+  Enter/Space dispatch a synthetic click - reaching the same registered
+  drilldown a mouse click would.
 - Placeholder/error text uses a theme-aware color (the classic viz's
   default was light-theme-only and fails WCAG AA contrast on a dark panel).
 
@@ -180,11 +203,15 @@ like jsdom wouldn't exercise the same way), with a mocked
 `DashboardExtensionAPI` (`test/mock-dashboard-api.mjs`) standing in for
 Dashboard Studio's real one. Covers rendering with sample data, the
 no-data/invalid-data states, NaN-prone and invalid-format option values,
-legend mouse/keyboard/hover behavior, and the drilldown registration
-behavior described above (including that it doesn't grow on a same-data
-re-render, and does grow correctly on a schema change). This is what caught
-every bug mentioned above before any of them reached AppInspect or a real
-Splunk instance - run it after any change to `src/` or `config.json`.
+legend mouse/keyboard/hover behavior, the drilldown registration behavior
+described above (including that it doesn't grow on a same-data re-render,
+and does grow correctly on a schema change), the SVG/PNG export buttons
+(including a valid-PNG-header/valid-SVG-markup check on the downloaded
+files themselves), and data-point keyboard accessibility. This is what
+caught every bug mentioned above before any of them reached AppInspect or a
+real Splunk instance - run it after any change to `src/` or `config.json`.
+Also runs in CI (`.github/workflows/ci.yml`) on every push/PR, alongside a
+`splunk-appinspect` pass.
 
 Output: `visualization.js`, alongside `src/` (same convention as the classic
 viz's webpack output) - this is the file Splunk actually loads, picked up

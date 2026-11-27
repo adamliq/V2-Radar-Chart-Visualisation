@@ -52,7 +52,7 @@ function assert(condition, message) {
 }
 
 async function withPage(browser, baseUrl, mockConfig, fn) {
-    const page = await browser.newPage({ viewport: { width: 600, height: 600 } });
+    const page = await browser.newPage({ viewport: { width: 600, height: 600 }, acceptDownloads: true });
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.stack || e.message));
     if (mockConfig) {
@@ -309,6 +309,110 @@ async function main() {
             assert(!stale.threw, "calling its payloadCallback doesn't throw even though its node is detached");
 
             assert(errors.length === 0, 'no uncaught page errors across all of the above');
+        });
+
+        console.log('\nchart export: SVG and PNG download buttons');
+        await withPage(browser, baseUrl, { dataSources: { primary: { data: SAMPLE_DATA } } }, async (page, errors) => {
+            const barInfo = await page.evaluate(() => {
+                const bar = document.querySelector('.radar-chart-studio-export-bar');
+                const buttons = bar ? Array.from(bar.querySelectorAll('button')) : [];
+                return { hasBar: !!bar, labels: buttons.map((b) => b.getAttribute('aria-label')) };
+            });
+            assert(barInfo.hasBar, 'export button bar is rendered');
+            assert(
+                JSON.stringify(barInfo.labels) === JSON.stringify(['Download chart as SVG', 'Download chart as PNG']),
+                `export buttons are labeled for SVG and PNG (got ${JSON.stringify(barInfo.labels)})`
+            );
+
+            const svgButton = await page.$('.radar-chart-studio-export-bar button:nth-child(1)');
+            const [svgDownload] = await Promise.all([page.waitForEvent('download'), svgButton.click()]);
+            assert(
+                svgDownload.suggestedFilename() === 'radar-chart.svg',
+                `SVG button downloads "radar-chart.svg" (got "${svgDownload.suggestedFilename()}")`
+            );
+            const svgContent = await readFile(await svgDownload.path(), 'utf8');
+            assert(svgContent.startsWith('<svg'), 'downloaded SVG file starts with an <svg> tag');
+            assert(svgContent.includes('rcRadarArea'), "downloaded SVG includes the chart's own markup");
+
+            const pngButton = await page.$('.radar-chart-studio-export-bar button:nth-child(2)');
+            const [pngDownload] = await Promise.all([page.waitForEvent('download'), pngButton.click()]);
+            assert(
+                pngDownload.suggestedFilename() === 'radar-chart.png',
+                `PNG button downloads "radar-chart.png" (got "${pngDownload.suggestedFilename()}")`
+            );
+            const pngBytes = await readFile(await pngDownload.path());
+            const isPng = pngBytes.length > 8 && pngBytes[0] === 0x89 && pngBytes[1] === 0x50 && pngBytes[2] === 0x4e && pngBytes[3] === 0x47;
+            assert(isPng, 'downloaded PNG file has a valid PNG header');
+
+            assert(errors.length === 0, 'no uncaught page errors');
+        });
+
+        console.log('\nchart export: hidden via exportButtonsEnabled option');
+        await withPage(
+            browser,
+            baseUrl,
+            { dataSources: { primary: { data: SAMPLE_DATA } }, options: { exportButtonsEnabled: false } },
+            async (page, errors) => {
+                const display = await page.evaluate(
+                    () => document.querySelector('.radar-chart-studio-export-bar')?.style.display
+                );
+                assert(display === 'none', `export bar is hidden when exportButtonsEnabled is false (got "${display}")`);
+                assert(errors.length === 0, 'no uncaught page errors');
+            }
+        );
+
+        console.log('\ndata points: keyboard/screen-reader accessible');
+        await withPage(browser, baseUrl, { dataSources: { primary: { data: SAMPLE_DATA } } }, async (page, errors) => {
+            const attrs = await page.evaluate(() =>
+                Array.from(document.querySelectorAll('.rcRadarInvisibleCircle')).map((c) => ({
+                    tabindex: c.getAttribute('tabindex'),
+                    role: c.getAttribute('role'),
+                    ariaLabel: c.getAttribute('aria-label'),
+                }))
+            );
+            assert(attrs.length === 12, `12 data points found (got ${attrs.length})`);
+            assert(attrs.every((a) => a.tabindex === '0'), 'every data point has tabindex="0"');
+            assert(attrs.every((a) => a.role === 'button'), 'every data point has role="button"');
+            assert(
+                attrs.every((a) => /^.+, .+: .+$/.test(a.ariaLabel || '')),
+                `every data point has a "key, axis: value" aria-label (got ${JSON.stringify(attrs[0])})`
+            );
+
+            const getTooltipOpacity = () => getComputedStyle(document.querySelector('.rcTooltip')).opacity;
+            const before = await page.evaluate(getTooltipOpacity);
+            await page.evaluate(() => document.querySelectorAll('.rcRadarInvisibleCircle')[0].focus());
+            await page.waitForTimeout(300);
+            const focused = await page.evaluate(getTooltipOpacity);
+            await page.evaluate(() => document.querySelectorAll('.rcRadarInvisibleCircle')[0].blur());
+            await page.waitForTimeout(300);
+            const blurred = await page.evaluate(getTooltipOpacity);
+            assert(before === '0', `tooltip hidden before focus (got ${before})`);
+            assert(focused === '1', `focusing a data point shows its tooltip, same as hover (got ${focused})`);
+            assert(blurred === '0', `blurring hides the tooltip again (got ${blurred})`);
+
+            const ariaLabel = await page.evaluate(() =>
+                document.querySelector('.radar-chart-studio-container').getAttribute('aria-label')
+            );
+            assert(
+                ariaLabel.includes('current') && ariaLabel.includes('better') && ariaLabel.includes('Business Value'),
+                `container aria-label summarizes categories and axes (got "${ariaLabel}")`
+            );
+            const role = await page.evaluate(() => document.querySelector('.radar-chart-studio-container').getAttribute('role'));
+            assert(role === 'group', `container role is "group", not "img" (its interactive children need to stay exposed) (got "${role}")`);
+
+            const firstPoint = await page.$('.rcRadarInvisibleCircle');
+            await firstPoint.focus();
+            await page.evaluate(() => {
+                window.__clickFired = false;
+                document.querySelectorAll('.rcRadarInvisibleCircle')[0].addEventListener('click', () => {
+                    window.__clickFired = true;
+                });
+            });
+            await page.keyboard.press('Enter');
+            const clickFired = await page.evaluate(() => window.__clickFired);
+            assert(clickFired, 'Enter on a focused data point dispatches a click (same path a mouse click, and Studio\'s registered drilldown, would use)');
+
+            assert(errors.length === 0, 'no uncaught page errors');
         });
 
         console.log(`\n${passed} passed, ${failed} failed`);

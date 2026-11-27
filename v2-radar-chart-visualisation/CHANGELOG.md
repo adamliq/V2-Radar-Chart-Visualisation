@@ -2,6 +2,39 @@
 
 All notable changes to the v2-radar-chart-visualisation app.
 
+## 2.4.0
+
+**radar_chart_studio** (Dashboard Studio-native visualization):
+
+- Added SVG/PNG chart export: two buttons (toggle with the new "Show export
+  buttons" format option, on by default) download the current render,
+  client-side - a direct serialization of the chart's own `<svg>` for SVG,
+  drawn into an offscreen canvas and read back out for PNG. No server
+  round-trip, no added dependency. Not yet verified inside a real Dashboard
+  Studio instance (its sandboxed iframe needs to permit the download) - see
+  the visualization's own README for the full caveat.
+- Added keyboard/screen-reader accessibility for data points: each is now
+  focusable with a descriptive `aria-label` (category, axis, and value),
+  focus/blur show and hide the same tooltip a mouse hover would, and
+  Enter/Space reach the same registered drilldown a mouse click would -
+  previously mouse-only, unlike the legend's existing keyboard support.
+- Fixed the chart container's ARIA role: `role="img"` tells assistive tech
+  to treat the whole subtree as one flat, non-interactive image, which
+  would have swallowed the legend's and data points' own keyboard
+  accessibility (and now the export buttons too). Changed to `role="group"`,
+  which still carries a summarizing `aria-label` but doesn't hide its
+  interactive children.
+- Fixed a bug incidentally found while building the above: if a render
+  ever hits the "Loading...", "No data available", or "Invalid data" state
+  *after* the chart was already showing (e.g. a live search briefly
+  returning zero rows), the placeholder text wipes the chart's DOM but
+  left the code thinking it was still initialized - a later render with
+  valid data would silently stay blank instead of rebuilding, for the rest
+  of the dashboard's life.
+- Added a GitHub Actions workflow (`.github/workflows/ci.yml`) running the
+  regression suite (now 59 assertions, up from 38) and `splunk-appinspect`
+  on every push/PR, rather than only on request.
+
 ## 2.3.0
 
 **radar_chart_studio** (Dashboard Studio-native visualization):

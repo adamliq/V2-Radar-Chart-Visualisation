@@ -23,6 +23,7 @@
       "levels": { "type": "number", "default": 8 },
       "format": { "type": "string", "default": "" },
       "isRounded": { "type": "boolean", "default": true },
+      "exportButtonsEnabled": { "type": "boolean", "default": true },
       "legendEnabled": { "type": "boolean", "default": true },
       "legendSymbol": { "type": "string", "default": "cross" },
       "legendToggleSymbol": { "type": "string", "default": "circle" },
@@ -53,6 +54,9 @@
           ],
           [
             { "label": "Rounded lines", "editor": "editor.checkbox", "option": "isRounded" }
+          ],
+          [
+            { "label": "Show export buttons (PNG/SVG)", "editor": "editor.checkbox", "option": "exportButtonsEnabled" }
           ],
           [
             { "label": "Areas opacity", "editor": "editor.number", "option": "areasOpacity" },

@@ -48,11 +48,17 @@ const state = {
 
 let radarChart = null;
 let isInitializedDom = false;
+let exportBar = null;
 
 const rootEl = document.getElementById('root') || document.body;
 const container = document.createElement('div');
 container.className = 'radar-chart-studio-container';
-container.setAttribute('role', 'img');
+// Not role="img": that tells assistive tech to treat the whole subtree as
+// one flat, non-interactive image, which would swallow the legend cells,
+// data points, and export buttons inside it - all real, keyboard-focusable
+// controls. "group" keeps aria-label as the overview while still exposing
+// those descendants normally.
+container.setAttribute('role', 'group');
 container.setAttribute('aria-label', 'Radar chart');
 rootEl.appendChild(container);
 
@@ -68,6 +74,16 @@ function showMessage(message) {
     // panel background.
     el.style.color = (THEME_DEFAULTS[state.theme] || THEME_DEFAULTS.light).axesLabelFontColor;
     container.appendChild(el);
+    // This can run on a render *after* the chart was already built (e.g. a
+    // live search that briefly returns zero rows), and the replaceChildren()
+    // above just detached it along with the export button bar. Without
+    // resetting these, a later render with valid data would see
+    // isInitializedDom still true and skip rebuilding against the (now
+    // detached) old nodes - the chart would silently stop rendering for
+    // good the first time this happens.
+    isInitializedDom = false;
+    radarChart = null;
+    exportBar = null;
 }
 
 // Search results arrive columnar: { fields: [{name}, ...], columns: [[...], ...] }.
@@ -175,6 +191,108 @@ function isTrue(value) {
     return value === true || value === 'true' || value === 1 || value === '1';
 }
 
+function triggerDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke on a timeout rather than immediately - some browsers need the
+    // object URL to still resolve when the download actually starts.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Rasterizing an SVG client-side (no server round-trip, no extra library)
+// means drawing it into an offscreen canvas via an <img>, then reading the
+// canvas back out - the standard, dependency-free way to get a PNG from an
+// SVG in a browser.
+function downloadChartAsPng(svgEl) {
+    const width = parseFloat(svgEl.getAttribute('width')) || svgEl.clientWidth || 500;
+    const height = parseFloat(svgEl.getAttribute('height')) || svgEl.clientHeight || 500;
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    const svgUrl = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        // Flatten transparency against an opaque background first - a PNG
+        // opened outside a browser composites transparency onto whatever
+        // the viewer defaults to (often black), not the dashboard's own
+        // panel background.
+        ctx.fillStyle = state.theme === 'dark' ? '#1a1a1a' : '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(svgUrl);
+        canvas.toBlob((blob) => {
+            if (blob) triggerDownload(URL.createObjectURL(blob), 'radar-chart.png');
+        }, 'image/png');
+    };
+    img.onerror = () => {
+        URL.revokeObjectURL(svgUrl);
+        VisualizationAPI.setError('Could not export chart as PNG');
+    };
+    img.src = svgUrl;
+}
+
+function downloadChartAsSvg(svgEl) {
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    triggerDownload(URL.createObjectURL(blob), 'radar-chart.svg');
+}
+
+// Created once (see the one-time init block in render()) and left in place
+// across re-renders, same as the chart's own DOM - the D3 engine only ever
+// touches its own <svg>, so a plain sibling element here is safe.
+//
+// Not yet possible to verify outside a real Dashboard Studio instance:
+// whether its sandboxed iframe allows a download this way (the `download`
+// attribute on an anchor needs the iframe's sandbox to include
+// `allow-downloads`, or no sandbox restriction at all) - same category of
+// caveat as registerPointDrilldown's below. The mocked test harness can
+// only confirm this code builds the right blob/anchor, not that Studio's
+// real sandbox lets the browser carry it through.
+function createExportControls() {
+    const bar = document.createElement('div');
+    bar.className = 'radar-chart-studio-export-bar';
+
+    const svgBtn = document.createElement('button');
+    svgBtn.type = 'button';
+    svgBtn.className = 'radar-chart-studio-export-btn';
+    svgBtn.textContent = 'SVG';
+    svgBtn.setAttribute('aria-label', 'Download chart as SVG');
+    svgBtn.addEventListener('click', () => {
+        const svgEl = container.querySelector('svg');
+        if (svgEl) downloadChartAsSvg(svgEl);
+    });
+
+    const pngBtn = document.createElement('button');
+    pngBtn.type = 'button';
+    pngBtn.className = 'radar-chart-studio-export-btn';
+    pngBtn.textContent = 'PNG';
+    pngBtn.setAttribute('aria-label', 'Download chart as PNG');
+    pngBtn.addEventListener('click', () => {
+        const svgEl = container.querySelector('svg');
+        if (svgEl) downloadChartAsPng(svgEl);
+    });
+
+    bar.appendChild(svgBtn);
+    bar.appendChild(pngBtn);
+    container.appendChild(bar);
+    return bar;
+}
+
+function styleExportControls(bar) {
+    const dark = state.theme === 'dark';
+    bar.querySelectorAll('button').forEach((btn) => {
+        btn.style.background = dark ? '#2a2a2a' : '#ffffff';
+        btn.style.color = dark ? '#e8e8e8' : '#333333';
+        btn.style.border = `1px solid ${dark ? '#555555' : '#cccccc'}`;
+    });
+}
+
 function render() {
     if (state.loading) {
         showMessage('Loading...');
@@ -224,6 +342,7 @@ function render() {
     const circlesFillColor = opts.circlesFillColor || '#CDCDCD';
     const areasOpacity = numberOption(opts.areasOpacity, 0.35);
     const circlesOpacity = numberOption(opts.circlesOpacity, 0.1);
+    const exportButtonsEnabled = opts.exportButtonsEnabled ?? true;
 
     if (!isInitializedDom) {
         // Only clear the container (which may hold a leftover "no data"/error
@@ -237,8 +356,12 @@ function render() {
         radarChart = new RadarChart(format);
         d3.select(container).call(radarChart);
         radarChart.onPointCreated(registerPointDrilldown);
+        exportBar = createExportControls();
         isInitializedDom = true;
     }
+
+    exportBar.style.display = isTrue(exportButtonsEnabled) ? '' : 'none';
+    styleExportControls(exportBar);
 
     radarChart
         .options({
@@ -285,6 +408,13 @@ function render() {
     if (isTrue(legendEnabled)) {
         makeLegendKeyboardAccessible(containerSel, categories);
     }
+    makeDataPointsAccessible(containerSel);
+
+    const categoryNames = Object.keys(categories);
+    container.setAttribute(
+        'aria-label',
+        `Radar chart comparing ${categoryNames.join(', ')} across ${radarChart.axes().join(', ')}`
+    );
 }
 
 // The legend's click-to-toggle-visibility behavior (d3-legend.js + the
@@ -314,6 +444,40 @@ function makeLegendKeyboardAccessible(containerSel, categories) {
                 if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
                     event.preventDefault();
                     this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                }
+            };
+        });
+}
+
+// Each invisible hit-target circle (one per category/axis combination) is
+// otherwise mouse-only: hovering shows a tooltip (d3-radar-chart.js's
+// tooltip_show/tooltip_hide) and the registered drilldown fires on a real
+// click. tabindex/aria-label make the point itself discoverable via
+// keyboard/screen reader; focus/blur stand in for mouseover/mouseout so the
+// same tooltip shows, and Enter/Space dispatch a synthetic click so a
+// keyboard user reaches the same drilldown a mouse click does (mirrors
+// makeLegendKeyboardAccessible's pattern above, including why this isn't
+// d3's own .on('keydown', ...)). Re-applied every render for the same
+// reason as the legend's version: idempotent, and circles are reused (not
+// recreated) across renders when the category/axis set doesn't change.
+function makeDataPointsAccessible(containerSel) {
+    containerSel
+        .selectAll('.rcRadarInvisibleCircle')
+        .attr('tabindex', '0')
+        .attr('role', 'button')
+        .attr('aria-label', (d) => {
+            if (!d) return 'Data point';
+            const value = d.original_value != null ? d.original_value : d.value;
+            return `${d.key}, ${d.axis}: ${value}`;
+        })
+        .each(function attachPointKeyboardHandlers() {
+            const node = this;
+            node.onfocus = () => node.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            node.onblur = () => node.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+            node.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
+                    event.preventDefault();
+                    node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
                 }
             };
         });

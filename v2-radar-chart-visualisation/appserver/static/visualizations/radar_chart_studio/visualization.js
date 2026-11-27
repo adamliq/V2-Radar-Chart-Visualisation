@@ -5631,7 +5631,7 @@ var UUID = (function() {
 (function() {
   var s2 = document.createElement("style");
   s2.setAttribute("data-viz", "");
-  s2.textContent = "html,\nbody {\n  margin: 0;\n  padding: 0;\n  width: 100%;\n  height: 100%;\n}\n.radar-chart-studio-container {\n  width: 100%;\n  height: 100%;\n  overflow: hidden;\n}\n.radar-chart-studio-empty {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 100%;\n  height: 100%;\n  font-size: 13px;\n}\n";
+  s2.textContent = "html,\nbody {\n  margin: 0;\n  padding: 0;\n  width: 100%;\n  height: 100%;\n}\n.radar-chart-studio-container {\n  position: relative;\n  width: 100%;\n  height: 100%;\n  overflow: hidden;\n}\n.radar-chart-studio-export-bar {\n  position: absolute;\n  top: 4px;\n  right: 4px;\n  z-index: 1;\n  display: flex;\n  gap: 4px;\n}\n.radar-chart-studio-export-btn {\n  font: 11px sans-serif;\n  padding: 2px 6px;\n  border-radius: 3px;\n  cursor: pointer;\n  opacity: 0.55;\n  transition: opacity 0.15s ease;\n}\n.radar-chart-studio-export-btn:hover,\n.radar-chart-studio-export-btn:focus-visible {\n  opacity: 1;\n}\n.radar-chart-studio-empty {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 100%;\n  height: 100%;\n  font-size: 13px;\n}\n";
   document.head.appendChild(s2);
 })();
 
@@ -5662,10 +5662,11 @@ var state = {
 };
 var radarChart = null;
 var isInitializedDom = false;
+var exportBar = null;
 var rootEl = document.getElementById("root") || document.body;
 var container = document.createElement("div");
 container.className = "radar-chart-studio-container";
-container.setAttribute("role", "img");
+container.setAttribute("role", "group");
 container.setAttribute("aria-label", "Radar chart");
 rootEl.appendChild(container);
 function showMessage(message) {
@@ -5676,6 +5677,9 @@ function showMessage(message) {
   el.textContent = message;
   el.style.color = (THEME_DEFAULTS[state.theme] || THEME_DEFAULTS.light).axesLabelFontColor;
   container.appendChild(el);
+  isInitializedDom = false;
+  radarChart = null;
+  exportBar = null;
 }
 function toRows(data) {
   const fieldNames = (data.fields || []).map((f) => typeof f === "string" ? f : f.name);
@@ -5763,8 +5767,81 @@ function formatData(data) {
 function isTrue(value2) {
   return value2 === true || value2 === "true" || value2 === 1 || value2 === "1";
 }
+function triggerDownload(url, filename) {
+  const a2 = document.createElement("a");
+  a2.href = url;
+  a2.download = filename;
+  document.body.appendChild(a2);
+  a2.click();
+  a2.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1e3);
+}
+function downloadChartAsPng(svgEl) {
+  const width = parseFloat(svgEl.getAttribute("width")) || svgEl.clientWidth || 500;
+  const height = parseFloat(svgEl.getAttribute("height")) || svgEl.clientHeight || 500;
+  const svgString = new XMLSerializer().serializeToString(svgEl);
+  const svgUrl = URL.createObjectURL(new Blob([svgString], { type: "image/svg+xml;charset=utf-8" }));
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = state.theme === "dark" ? "#1a1a1a" : "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    URL.revokeObjectURL(svgUrl);
+    canvas.toBlob((blob) => {
+      if (blob) triggerDownload(URL.createObjectURL(blob), "radar-chart.png");
+    }, "image/png");
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(svgUrl);
+    visualization_exports.setError("Could not export chart as PNG");
+  };
+  img.src = svgUrl;
+}
+function downloadChartAsSvg(svgEl) {
+  const svgString = new XMLSerializer().serializeToString(svgEl);
+  const blob = new Blob([svgString], { type: "image/svg+xml" });
+  triggerDownload(URL.createObjectURL(blob), "radar-chart.svg");
+}
+function createExportControls() {
+  const bar = document.createElement("div");
+  bar.className = "radar-chart-studio-export-bar";
+  const svgBtn = document.createElement("button");
+  svgBtn.type = "button";
+  svgBtn.className = "radar-chart-studio-export-btn";
+  svgBtn.textContent = "SVG";
+  svgBtn.setAttribute("aria-label", "Download chart as SVG");
+  svgBtn.addEventListener("click", () => {
+    const svgEl = container.querySelector("svg");
+    if (svgEl) downloadChartAsSvg(svgEl);
+  });
+  const pngBtn = document.createElement("button");
+  pngBtn.type = "button";
+  pngBtn.className = "radar-chart-studio-export-btn";
+  pngBtn.textContent = "PNG";
+  pngBtn.setAttribute("aria-label", "Download chart as PNG");
+  pngBtn.addEventListener("click", () => {
+    const svgEl = container.querySelector("svg");
+    if (svgEl) downloadChartAsPng(svgEl);
+  });
+  bar.appendChild(svgBtn);
+  bar.appendChild(pngBtn);
+  container.appendChild(bar);
+  return bar;
+}
+function styleExportControls(bar) {
+  const dark = state.theme === "dark";
+  bar.querySelectorAll("button").forEach((btn) => {
+    btn.style.background = dark ? "#2a2a2a" : "#ffffff";
+    btn.style.color = dark ? "#e8e8e8" : "#333333";
+    btn.style.border = `1px solid ${dark ? "#555555" : "#cccccc"}`;
+  });
+}
 function render() {
-  var _a2, _b, _c;
+  var _a2, _b, _c, _d;
   if (state.loading) {
     showMessage("Loading...");
     return;
@@ -5809,13 +5886,17 @@ function render() {
   const circlesFillColor = opts.circlesFillColor || "#CDCDCD";
   const areasOpacity = numberOption(opts.areasOpacity, 0.35);
   const circlesOpacity = numberOption(opts.circlesOpacity, 0.1);
+  const exportButtonsEnabled = (_d = opts.exportButtonsEnabled) != null ? _d : true;
   if (!isInitializedDom) {
     container.replaceChildren();
     radarChart = new RadarChart(format2);
     select(container).call(radarChart);
     radarChart.onPointCreated(registerPointDrilldown);
+    exportBar = createExportControls();
     isInitializedDom = true;
   }
+  exportBar.style.display = isTrue(exportButtonsEnabled) ? "" : "none";
+  styleExportControls(exportBar);
   radarChart.options({
     width: state.width,
     height: state.height,
@@ -5852,6 +5933,12 @@ function render() {
   if (isTrue(legendEnabled)) {
     makeLegendKeyboardAccessible(containerSel, categories);
   }
+  makeDataPointsAccessible(containerSel);
+  const categoryNames = Object.keys(categories);
+  container.setAttribute(
+    "aria-label",
+    `Radar chart comparing ${categoryNames.join(", ")} across ${radarChart.axes().join(", ")}`
+  );
 }
 function makeLegendKeyboardAccessible(containerSel, categories) {
   const keys = Object.keys(categories);
@@ -5863,6 +5950,23 @@ function makeLegendKeyboardAccessible(containerSel, categories) {
       if (event.key === "Enter" || event.key === " " || event.keyCode === 13 || event.keyCode === 32) {
         event.preventDefault();
         this.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      }
+    };
+  });
+}
+function makeDataPointsAccessible(containerSel) {
+  containerSel.selectAll(".rcRadarInvisibleCircle").attr("tabindex", "0").attr("role", "button").attr("aria-label", (d) => {
+    if (!d) return "Data point";
+    const value2 = d.original_value != null ? d.original_value : d.value;
+    return `${d.key}, ${d.axis}: ${value2}`;
+  }).each(function attachPointKeyboardHandlers() {
+    const node = this;
+    node.onfocus = () => node.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    node.onblur = () => node.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    node.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " " || event.keyCode === 13 || event.keyCode === 32) {
+        event.preventDefault();
+        node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       }
     };
   });

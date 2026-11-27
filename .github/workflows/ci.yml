@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  radar_chart_studio-tests:
+    name: radar_chart_studio regression suite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2-radar-chart-visualisation/appserver/static/visualizations/radar_chart_studio
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2-radar-chart-visualisation/appserver/static/visualizations/radar_chart_studio/package-lock.json
+
+      - run: npm ci
+
+      # Builds the bundle (via npm test's pretest step) and drives it in a
+      # real headless browser against a mocked DashboardExtensionAPI - see
+      # test/run.mjs. This is what has caught every real bug in this
+      # visualization so far, well before AppInspect or a real Splunk
+      # instance would have.
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - run: npm test
+
+  appinspect:
+    name: splunk-appinspect
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install splunk-appinspect
+
+      - name: Package the app
+        run: |
+          tar czf v2-radar-chart-visualisation.spl \
+            --exclude='node_modules' \
+            --exclude='*.map' \
+            --exclude='.git' \
+            --exclude='.DS_Store' \
+            v2-radar-chart-visualisation
+
+      # --mode precert matches what Splunkbase runs before listing a
+      # release; splunk-appinspect exits non-zero if any check comes back
+      # as an error or a failure.
+      - name: Run splunk-appinspect
+        run: splunk-appinspect inspect v2-radar-chart-visualisation.spl --mode precert
