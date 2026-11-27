@@ -4,6 +4,13 @@
 // `d3`, and on sloppy-mode implicit-global assignment for `RadarChart`,
 // neither of which esbuild's ESM output provides).
 import * as d3 from 'd3';
+// The 'd3' meta-package declares "sideEffects": false in its package.json,
+// so esbuild tree-shakes d3-transition's module-eval-time side effect
+// (`selection.prototype.transition = transition`) away whenever nothing in
+// the bundle references a *named* export from it - which this file never
+// does, since it only calls the resulting `.transition()` selection method.
+// Importing it directly (for its side effect only) forces esbuild to keep it.
+import 'd3-transition';
 
 // d3 v3's d3.format(spec) throws synchronously on an unparseable spec, and
 // the "Number format" field is free text a user can type anything into -
@@ -14,6 +21,33 @@ function safeFormat(spec) {
     } catch (err) {
         return d3.format('');
     }
+}
+
+// d3 v7 has no built-in "triangle-down" symbol (only the upward-pointing
+// d3.symbolTriangle) - mirror its geometry vertically to keep the
+// 'triangle-down' legend option (surfaced in config.json's dropdown)
+// rendering the same shape it did under d3 v3's string-based symbol types.
+var SQRT3 = Math.sqrt(3);
+var symbolTriangleDown = {
+    draw: function(context, size) {
+        var y = -Math.sqrt(size / (SQRT3 * 3));
+        context.moveTo(0, -y * 2);
+        context.lineTo(-SQRT3 * y, y);
+        context.lineTo(SQRT3 * y, y);
+        context.closePath();
+    }
+};
+
+var SYMBOL_TYPES = {
+    'circle': d3.symbolCircle,
+    'cross': d3.symbolCross,
+    'diamond': d3.symbolDiamond,
+    'triangle-up': d3.symbolTriangle,
+    'triangle-down': symbolTriangleDown
+};
+
+function resolveSymbolType(name) {
+    return SYMBOL_TYPES[name] || d3.symbolCircle;
 }
 
 export default function RadarChart(format) {
@@ -98,7 +132,7 @@ export default function RadarChart(format) {
 
       class: "rc",
 
-      color: d3.scale.category10()     //Color function
+      color: d3.scaleOrdinal(d3.schemeCategory10)     //Color function
    }
 
    // nodes layered such that radarInvisibleCircles always on top of radarAreas
@@ -200,12 +234,15 @@ export default function RadarChart(format) {
                 dataCalcs();
                 radialCalcs();
 
+                var axisIndexByName = {};
+                radial_calcs.axes.forEach(function(a, i) { axisIndexByName[get_axis(a)] = i; });
+
                 keys = _data.map(function(m) { return m.key; });
-                keyScale = d3.scale.ordinal()
+                keyScale = d3.scaleOrdinal()
                              .domain(_data.map(function(m) { return m._i; }))
                              .range(_data.map(function(m) { return m.key; }));
-                colorScale = d3.scale.ordinal()
-                                .domain(_data.map(function(m) { 
+                colorScale = d3.scaleOrdinal()
+                                .domain(_data.map(function(m) {
                                    return options.areas.colors[keyScale(m._i)] ? 
                                           keyScale(m._i) 
                                           : m._i.toString(); 
@@ -253,8 +290,8 @@ export default function RadarChart(format) {
                     .append("circle")
                     .attr("class", options.class + "GridCircle")
                     .attr("r", function(d, i) { return radial_calcs.radius / options.circles.levels * d; })
-                    .on('mouseover', function(d, i) { if (events.gridCircle.mouseover) events.gridCircle.mouseover(d, i); })
-                    .on('mouseout', function(d, i) { if (events.gridCircle.mouseout) events.gridCircle.mouseout(d, i); })
+                    .on('mouseover', function(event, d) { if (events.gridCircle.mouseover) events.gridCircle.mouseover(d); })
+                    .on('mouseout', function(event, d) { if (events.gridCircle.mouseout) events.gridCircle.mouseout(d); })
                     .style("fill", options.circles.fill)
                     .style("fill-opacity", options.circles.opacity)
                     .style("stroke", options.circles.color)
@@ -284,8 +321,8 @@ export default function RadarChart(format) {
                     .attr("dy", "0.4em")
                     .style("font-size", "10px")
                     .attr("fill", options.axes.axesLabelFontColor)
-                    .on('mouseover', function(d, i) { if (events.axisLabel.mouseover) events.axisLabel.mouseover(d, i); })
-                    .on('mouseout', function(d, i) { if (events.axisLabel.mouseout) events.axisLabel.mouseout(d, i); })
+                    .on('mouseover', function(event, d) { if (events.axisLabel.mouseover) events.axisLabel.mouseover(d); })
+                    .on('mouseout', function(event, d) { if (events.axisLabel.mouseout) events.axisLabel.mouseout(d); })
                     .text(function(d, i) { if (radial_calcs.maxValue) return Format(radial_calcs.maxValue * d / options.circles.levels); });
 
                 update_axisLabels.exit()
@@ -295,7 +332,7 @@ export default function RadarChart(format) {
                 var update_axes = axisGrid.selectAll("." + options.class + "Axis")
                     .data(radial_calcs.axes, get_axis)
 
-                update_axes
+                var update_axes_enter = update_axes
                    .enter().append("g")
                    .attr("class", options.class + "Axis")
                    .attr("key", function(d) { return d.axis; });
@@ -305,18 +342,25 @@ export default function RadarChart(format) {
                    .style('opacity', 0)
                    .remove()
 
+                // d3 v4+ no longer auto-merges entered nodes back into the
+                // "update" selection the way v3 did (the "general update
+                // pattern" change) - anything derived from update_axes below
+                // needs the explicit merge, or axes created on this render
+                // would never get their line/axisLegend children appended.
+                update_axes = update_axes.merge(update_axes_enter);
+
                 var update_lines = update_axes.selectAll("." + options.class + "Line")
                     .data(function(d) { return [d]; }, get_axis)
 
-                update_lines.enter()
+                var update_lines_enter = update_lines.enter()
                     .append("line")
                     .attr("class", options.class + "Line")
                     .attr("x1", 0)
                     .attr("y1", 0)
-                    .attr("x2", function(d, i, j) { return calcX(null, 1.1, j); })
-                    .attr("y2", function(d, i, j) { return calcY(null, 1.1, j); })
-                    .on('mouseover', function(d, i, j) { if (events.line.mouseover) events.line.mouseover(d, j); })
-                    .on('mouseout', function(d, i, j) { if (events.line.mouseout) events.line.mouseout(d, j); })
+                    .attr("x2", function(d) { return calcX(null, 1.1, axisIndexByName[get_axis(d)]); })
+                    .attr("y2", function(d) { return calcY(null, 1.1, axisIndexByName[get_axis(d)]); })
+                    .on('mouseover', function(event, d) { if (events.line.mouseover) events.line.mouseover(d); })
+                    .on('mouseout', function(event, d) { if (events.line.mouseout) events.line.mouseout(d); })
                     .style("stroke", options.axes.lineColor)
                     .style("stroke-width", "2px")
 
@@ -325,28 +369,30 @@ export default function RadarChart(format) {
                     .delay(function(d, i) { return 0; })
                     .remove();
 
+                update_lines = update_lines.merge(update_lines_enter);
+
                 update_lines
                     .transition().duration(duration)
                     .style("stroke", options.axes.lineColor)
                     .style("stroke-width", options.axes.lineWidth)
-                    .attr("x2", function(d, i, j) { return calcX(null, 1.1, j); })
-                    .attr("y2", function(d, i, j) { return calcY(null, 1.1, j); })
+                    .attr("x2", function(d) { return calcX(null, 1.1, axisIndexByName[get_axis(d)]); })
+                    .attr("y2", function(d) { return calcY(null, 1.1, axisIndexByName[get_axis(d)]); })
 
                 var update_axis_legends = update_axes.selectAll("." + options.class + "AxisLegend")
                     .data(function(d) { return [d]; }, get_axis)
 
-                update_axis_legends.enter()
+                var update_axis_legends_enter = update_axis_legends.enter()
                     .append("text")
                     .attr("class", options.class + "AxisLegend")
                     .style("font-size", options.axes.fontWidth)
                     .attr("fill", options.axes.axesLegendFontColor)
                     .attr("text-anchor", "middle")
                     .attr("dy", "0.35em")
-                    .attr("x", function(d, i, j) { return calcX(null, options.circles.labelFactor, j); })
-                    .attr("y", function(d, i, j) { return calcY(null, options.circles.labelFactor, j); })
+                    .attr("x", function(d) { return calcX(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
+                    .attr("y", function(d) { return calcY(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
                     .style('opacity', function(d, i) { return options.axes.display ? 1 : 0})
-                    .on('mouseover', function(d, i, j) { if (events.axisLegend.mouseover) events.axisLegend.mouseover(d, i, j); })
-                    .on('mouseout', function(d, i, j) { if (events.axisLegend.mouseout) events.axisLegend.mouseout(d, i, j); })
+                    .on('mouseover', function(event, d) { if (events.axisLegend.mouseover) events.axisLegend.mouseover(d); })
+                    .on('mouseout', function(event, d) { if (events.axisLegend.mouseout) events.axisLegend.mouseout(d); })
                     .call(wrap, options.axes.wrapWidth)
 
                 update_axis_legends.exit()
@@ -354,28 +400,30 @@ export default function RadarChart(format) {
                     .delay(function(d, i) { return 0; })
                     .remove();
 
+                update_axis_legends = update_axis_legends.merge(update_axis_legends_enter);
+
                 update_axis_legends
                     .transition().duration(duration)
-                    .style('opacity', function(d, i) { 
+                    .style('opacity', function(d, i) {
                        return options.axes.display && radial_calcs.radius > options.axes.threshold ? 1 : 0
                     })
-                    .attr("x", function(d, i, j) { return calcX(null, options.circles.labelFactor, j); })
-                    .attr("y", function(d, i, j) { return calcY(null, options.circles.labelFactor, j); })
+                    .attr("x", function(d) { return calcX(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
+                    .attr("y", function(d) { return calcY(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
                     .selectAll('tspan')
-                    .attr("x", function(d, i, j) { return calcX(null, options.circles.labelFactor, j); })
-                    .attr("y", function(d, i, j) { return calcY(null, options.circles.labelFactor, j); })
+                    .attr("x", function(d) { return calcX(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
+                    .attr("y", function(d) { return calcY(null, options.circles.labelFactor, axisIndexByName[get_axis(d)]); })
 
-                var radarLine = d3.svg.line.radial()
-                   .interpolate( options.areas.rounded ? 
-                                 "cardinal-closed" : 
-                                 "linear-closed" )
+                var radarLine = d3.lineRadial()
+                   .curve( options.areas.rounded ?
+                           d3.curveCardinalClosed :
+                           d3.curveLinearClosed )
                    .radius(function(d) { return radial_calcs.rScale(d.value); })
                    .angle(function(d,i) {   return i * radial_calcs.angleSlice; });
 
                 var update_blobWrapper = chart_node.selectAll("." + options.class + "RadarWrapper")
                    .data(_data, get_key)
 
-                update_blobWrapper.enter()
+                var update_blobWrapper_enter = update_blobWrapper.enter()
                    .append("g")
                    .attr("class", options.class + "RadarWrapper")
                    .attr("key", function(d) { return d.key; });
@@ -385,51 +433,60 @@ export default function RadarChart(format) {
                    .style('opacity', 0)
                    .remove()
 
+                // See the update_axes comment above re: the v4+ general
+                // update pattern - update_radarArea/Stroke/Circle below are
+                // all derived from this merged selection for the same reason.
+                update_blobWrapper = update_blobWrapper.merge(update_blobWrapper_enter);
+
                 update_blobWrapper
-                   .style("fill-opacity", function(d, i) { 
+                   .style("fill-opacity", function(d, i) {
                       return options.areas.filter.indexOf(d.key) >= 0 ? 0 : options.areas.opacity;
                    })
 
                 var update_radarArea = update_blobWrapper.selectAll('.' + options.class + 'RadarArea')
                    .data(function(d) { return [d]; }, get_key);
 
-                update_radarArea.enter()
+                var update_radarArea_enter = update_radarArea.enter()
                    .append("path")
                    .attr("class", function(d) { return options.class + "RadarArea " + d.key.replace(/\s+/g, '') })
                    .attr("d", function(d, i) { return radarLine(d.values); })
-                   .style("fill", function(d, i, j) { return setColor(d); })
+                   .style("fill", function(d) { return setColor(d); })
                    .style("fill-opacity", 0)
-                   .on('mouseover', function(d, i) { if (events.radarArea.mouseover) events.radarArea.mouseover(d, i, this); })
-                   .on('mouseout', function(d, i) { if (events.radarArea.mouseout) events.radarArea.mouseout(d, i, this); })
+                   .on('mouseover', function(event, d) { if (events.radarArea.mouseover) events.radarArea.mouseover(d, this); })
+                   .on('mouseout', function(event, d) { if (events.radarArea.mouseout) events.radarArea.mouseout(d, this); })
 
                 update_radarArea.exit().remove()
 
+                update_radarArea = update_radarArea.merge(update_radarArea_enter);
+
                 update_radarArea
                    .transition().duration(duration)
-                   .style("fill", function(d, i, j) { return setColor(d); })
+                   .style("fill", function(d) { return setColor(d); })
                    .attr("d", function(d, i) { return radarLine(d.values); })
-                   .style("fill-opacity", function(d, i) { 
+                   .style("fill-opacity", function(d, i) {
                       return options.areas.filter.indexOf(d.key) >= 0 ? 0 : options.areas.opacity;
                    })
 
                 var update_radarStroke = update_blobWrapper.selectAll('.' + options.class + 'RadarStroke')
                    .data(function(d) { return [d]; }, get_key);
 
-                update_radarStroke.enter()
+                var update_radarStroke_enter = update_radarStroke.enter()
                    .append("path")
                    .attr("class", options.class + "RadarStroke")
                    .attr("d", function(d, i) { return radarLine(d.values); })
                    .style("opacity", 0)
                    .style("stroke-width", options.areas.borderWidth + "px")
-                   .style("stroke", function(d, i, j) { return setColor(d); })
+                   .style("stroke", function(d) { return setColor(d); })
                    .style("fill", "none")
                    .style("filter" , function() { if (options.filter) return "url(#" + options.filter + ")" });
-            
+
                 update_radarStroke.exit().remove();
+
+                update_radarStroke = update_radarStroke.merge(update_radarStroke_enter);
 
                 update_radarStroke
                    .transition().duration(duration)
-                   .style("stroke", function(d, i, j) { return setColor(d); })
+                   .style("stroke", function(d) { return setColor(d); })
                    .attr("d", function(d, i) { return radarLine(d.values); })
                    .style("filter" , function() { if (options.filter) return "url(#" + options.filter + ")" })
                    .style("opacity", function(d, i) {
@@ -439,26 +496,33 @@ export default function RadarChart(format) {
                 var update_radarCircle = update_blobWrapper.selectAll('.' + options.class + 'RadarCircle')
                    .data(function(d, i) { return add_index(d._i, d.key, d.values) });
 
-                update_radarCircle.enter()
+                var update_radarCircle_enter = update_radarCircle.enter()
                    .append("circle")
                    .attr("class", options.class + "RadarCircle")
                    .attr("r", options.areas.dotRadius)
-                   .attr("cx", function(d, i, j){ return calcX(0, 0, i); })
-                   .attr("cy", function(d, i, j){ return calcY(0, 0, i); })
-                   .style("fill", function(d, i, j) { return setColor(d, d._i, _data[j].key); })
-                   .style("fill-opacity", function(d, i) { return 0; })
+                   .attr("cx", function(d, i){ return calcX(0, 0, i); })
+                   .attr("cy", function(d, i){ return calcY(0, 0, i); })
+                   .style("fill", function(d) { return setColor(d, d._i, keyScale(d._i)); })
+                   .style("fill-opacity", function(d, i) { return 0; });
+
+                // Captured as a selection (not the .transition() below) so it
+                // can still be passed to .merge() - Selection.merge() doesn't
+                // accept a Transition.
+                update_radarCircle_enter
                    .transition().duration(duration)
-                   .attr("cx", function(d, i, j){ return calcX(d.value, 0, i); })
-                   .attr("cy", function(d, i, j){ return calcY(d.value, 0, i); })
+                   .attr("cx", function(d, i){ return calcX(d.value, 0, i); })
+                   .attr("cy", function(d, i){ return calcY(d.value, 0, i); })
 
                 update_radarCircle.exit().remove();
 
+                update_radarCircle = update_radarCircle.merge(update_radarCircle_enter);
+
                 update_radarCircle
                    .transition().duration(duration)
-                   .style("fill", function(d, i, j) { return setColor(d, d._i, _data[j].key); })
-                   .style("fill-opacity", function(d, i, j) { 
-                      var key = _data.map(function(m) {return m.key})[j];
-                      return options.areas.filter.indexOf(key) >= 0 ? 0 : 0.8; 
+                   .style("fill", function(d) { return setColor(d, d._i, keyScale(d._i)); })
+                   .style("fill-opacity", function(d) {
+                      var key = keyScale(d._i);
+                      return options.areas.filter.indexOf(key) >= 0 ? 0 : 0.8;
                    })
                    .attr("r", options.areas.dotRadius)
                    .attr("cx", function(d, i){ return calcX(d.value, 0, i); })
@@ -467,7 +531,7 @@ export default function RadarChart(format) {
                 var update_blobCircleWrapper = hover_node.selectAll("." + options.class + "RadarCircleWrapper")
                    .data(_data, get_key)
 
-                update_blobCircleWrapper.enter()
+                var update_blobCircleWrapper_enter = update_blobCircleWrapper.enter()
                    .append("g")
                    .attr("class", options.class + "RadarCircleWrapper")
                    .attr("key", function(d) { return d.key; });
@@ -476,6 +540,10 @@ export default function RadarChart(format) {
                    .transition().duration(duration)
                    .style('opacity', 0)
                    .remove()
+
+                // update_radarInvisibleCircle below is derived from this
+                // merged selection - see the update_axes comment above.
+                update_blobCircleWrapper = update_blobCircleWrapper.merge(update_blobCircleWrapper_enter);
 
                 var update_radarInvisibleCircle = update_blobCircleWrapper.selectAll("." + options.class + "RadarInvisibleCircle")
                    .data(function(d, i) { return add_index(d._i, d.key, d.values); });
@@ -488,11 +556,11 @@ export default function RadarChart(format) {
                    .attr("cy", function(d, i){ return calcY(d.value, 0, i); })
                    .style("fill", "none")
                    .style("pointer-events", "all")
-                   .on('mouseover', function(d, i) { 
-                      if (events.radarInvisibleCircle.mouseover) events.radarInvisibleCircle.mouseover(d, i, this); 
+                   .on('mouseover', function(event, d) {
+                      if (events.radarInvisibleCircle.mouseover) events.radarInvisibleCircle.mouseover(d, this);
                    })
-                   .on("mouseout", function(d, i) {
-                      if (events.radarInvisibleCircle.mouseout) events.radarInvisibleCircle.mouseout(d, i, this);
+                   .on("mouseout", function(event, d) {
+                      if (events.radarInvisibleCircle.mouseout) events.radarInvisibleCircle.mouseout(d, this);
                    })
                    .each(function() {
                       if (onPointCreated) onPointCreated(this);
@@ -521,7 +589,7 @@ export default function RadarChart(format) {
                    var legendShapeOffsetX = 8;
                    var legendLabelOffsetX = 20;
 
-                   var colorScale = d3.scale.ordinal()
+                   var colorScale = d3.scaleOrdinal()
                       .domain(_data.map(function(m) { return m._i; }))
                       .range(_data.map(function(m) { return setColor(m); }));
 
@@ -537,16 +605,22 @@ export default function RadarChart(format) {
 
                    update_legendCell.exit().remove();
 
+                   // Without this, a legend cell created on this render (new
+                   // category) would never get its transform/click-handlers/
+                   // swatch/label set below - see the update_axes comment
+                   // above re: the v4+ general update pattern.
+                   update_legendCell = update_legendCell.merge(legendCellEnter);
+
                    update_legendCell
                       .attr("transform", function(d, i) { return "translate(0," + (i * legendRowHeight) + ")"; })
-                      .on("click", function(d, i) {
-                         if (events.legend.mouseclick) events.legend.mouseclick(d, i, this);
+                      .on("click", function(event, d) {
+                         if (events.legend.mouseclick) events.legend.mouseclick(d, this);
                       })
-                      .on("mouseover", function(d, i) {
-                         if (events.legend.mouseover) events.legend.mouseover(d, i, this);
+                      .on("mouseover", function(event, d) {
+                         if (events.legend.mouseover) events.legend.mouseover(d, this);
                       })
-                      .on("mouseout", function(d, i) {
-                         if (events.legend.mouseout) events.legend.mouseout(d, i, this);
+                      .on("mouseout", function(event, d) {
+                         if (events.legend.mouseout) events.legend.mouseout(d, this);
                       });
 
                    update_legendCell.select("path.swatch")
@@ -554,7 +628,7 @@ export default function RadarChart(format) {
                       .attr("fill", function(d) { return colorScale(d); })
                       .attr("d", function(d) {
                          var symbolType = legend_toggles[d] ? options.legend.toggle : options.legend.symbol;
-                         return d3.svg.symbol().type(symbolType).size(legendShapeSize)();
+                         return d3.symbol().type(resolveSymbolType(symbolType)).size(legendShapeSize)();
                       });
 
                    update_legendCell.select("text.label")
@@ -667,7 +741,7 @@ export default function RadarChart(format) {
                                 : 1;
 
       //Scale for the radius
-      radial_calcs.rScale = d3.scale.linear()
+      radial_calcs.rScale = d3.scaleLinear()
                               .range([0, radial_calcs.radius])
                               .domain([0, radial_calcs.maxValue])
    }
@@ -1009,58 +1083,58 @@ export default function RadarChart(format) {
 
    // DEFAULT EVENTS
    // --------------
-   function areaMouseover(d, i, self) {
+   function areaMouseover(d, self) {
       if (legend_toggles[d._i]) return;
       //Dim all blobs
       chart_node.selectAll("." + options.class + "RadarArea")
          .transition().duration(200)
-            .style("fill-opacity", function(d, i, j) {
+            .style("fill-opacity", function(d) {
             return options.areas.filter.indexOf(d.key) >= 0 ? 0 : 0.1;
-          }) 
+          })
       //Bring back the hovered over blob
       d3.select(self)
          .transition().duration(200)
-            .style("fill-opacity", function(d, i, j) {
+            .style("fill-opacity", function(d) {
             return options.areas.filter.indexOf(d.key) >= 0 ? 0 : 0.7;
-         });    
+         });
    }
 
-   function areaMouseout(d, i, self) {
+   function areaMouseout(d, self) {
       //Bring back all blobs
       chart_node.selectAll("." + options.class + "RadarArea")
          .transition().duration(200)
-         .style("fill-opacity", function(d, i, j) {
+         .style("fill-opacity", function(d) {
             return options.areas.filter.indexOf(d.key) >= 0 ? 0 : options.areas.opacity;
          });
    }
 
    // on mouseover for the legend symbol
-    function legendMouseover(d, i, self) {
+    function legendMouseover(d, self) {
          if (legend_toggles[d]) return;
-         var area = keys.indexOf(d) >= 0 ? d : keyScale(d); 
+         var area = keys.indexOf(d) >= 0 ? d : keyScale(d);
 
             //Dim all blobs
             chart_node.selectAll("." + options.class + "RadarArea")
                 .transition().duration(200)
-                .style("fill-opacity", function(d, i, j) {
+                .style("fill-opacity", function(d) {
                return options.areas.filter.indexOf(d.key) >= 0 ? 0 : 0.1;
-            }); 
+            });
             //Bring back the hovered over blob
          chart_node.selectAll("." + options.class + "RadarArea." + area.replace(/\s+/g, ''))
                 .transition().duration(200)
-                .style("fill-opacity", function(d, i, j) {
+                .style("fill-opacity", function(d) {
                return options.areas.filter.indexOf(d.key) >= 0 ? 0 : 0.7;
-            }); 
+            });
     }
 
-   function legendClick(d, i, self) {
+   function legendClick(d, self) {
          var keys = _data.map(function(m) {return m.key});
          modifyList(options.areas.filter, keys[d], keys);
          legend_toggles[d] = legend_toggles[d] ? false : true;
          update();
    }
 
-   function tooltip_show(d, i, self) {
+   function tooltip_show(d, self) {
          if (legend_toggles[d._i]) return;
          var labels = getAxisLabels(_data);
          chart_node.select('[key="'+d.axis+'"]').select('text').style('opacity', 1);
@@ -1076,7 +1150,7 @@ export default function RadarChart(format) {
           .style('opacity', 1);
    }
 
-   function tooltip_hide(d, i, self) {
+   function tooltip_hide(d, self) {
          chart_node.select('[key="'+d.axis+'"]').select('text')
              .style('opacity', options.axes.display && radial_calcs.radius > options.axes.threshold ? 1 : 0);
          tooltip
@@ -1101,15 +1175,13 @@ export default function RadarChart(format) {
     // Wraps SVG text   
     // modification of: http://bl.ocks.org/mbostock/7555321
     function wrap(text, width) {
-      text.each(function(d, i, j) {
+      text.each(function(d, i) {
         var text = d3.select(this);
         var words = d.axis.split(/\s+/).reverse();
         var word;
         var line = [];
         var lineNumber = 0;
         var lineHeight = 1.4; // ems
-      var x = calcX(null, options.circles.labelFactor, j);
-      var y = calcY(null, options.circles.labelFactor, j);
        var dy = parseFloat(text.attr("dy"));
         var tspan = text.text(null).append("tspan").attr("dy", dy + "em");
 

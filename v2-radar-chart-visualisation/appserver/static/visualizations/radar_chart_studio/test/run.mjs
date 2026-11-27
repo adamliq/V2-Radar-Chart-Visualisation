@@ -88,6 +88,11 @@ async function main() {
                 legendCellCount: document.querySelectorAll('.cell').length,
                 legendLabels: Array.from(document.querySelectorAll('.cell text.label')).map((el) => el.textContent).sort(),
                 circleCount: document.querySelectorAll('.rcRadarInvisibleCircle').length,
+                lineCount: document.querySelectorAll('.rcLine').length,
+                axisLegendCount: document.querySelectorAll('.rcAxisLegend').length,
+                swatchDs: Array.from(document.querySelectorAll('.cell path.swatch')).map((el) => el.getAttribute('d')),
+                legendTransforms: Array.from(document.querySelectorAll('.cell')).map((el) => el.getAttribute('transform')),
+                areaOpacities: Array.from(document.querySelectorAll('.rcRadarArea')).map((el) => getComputedStyle(el).fillOpacity),
             }));
             assert(errors.length === 0, 'no uncaught page errors');
             assert(info.hasSvg, 'svg is rendered');
@@ -97,6 +102,29 @@ async function main() {
                 `legend labels are "better"/"current" (got ${JSON.stringify(info.legendLabels)})`
             );
             assert(info.circleCount === 12, `12 data-point circles, 2 categories x 6 axes (got ${info.circleCount})`);
+            // d3 v4+'s "general update pattern" doesn't auto-merge entered
+            // nodes back into the update selection the way d3 v3 did -
+            // regression coverage for that: axis lines/legends are nested
+            // under per-axis <g> elements that are themselves newly entered
+            // on a first render, so a missing .merge() anywhere on that path
+            // would leave these at 0 rather than one per axis.
+            assert(info.lineCount === 6, `6 axis lines, one per axis (got ${info.lineCount})`);
+            assert(info.axisLegendCount === 6, `6 axis legends, one per axis (got ${info.axisLegendCount})`);
+            // Same general-update-pattern risk for the legend: a swatch/label
+            // only gets its "d"/text/transform on a *later* render if the
+            // merge is missing (see the opacity regression below too).
+            assert(
+                info.swatchDs.every((d) => typeof d === 'string' && d.length > 0),
+                `every legend swatch has a non-empty path "d" (got ${JSON.stringify(info.swatchDs)})`
+            );
+            assert(
+                info.legendTransforms.every((t) => typeof t === 'string' && /^translate\(0,\d+\)$/.test(t)),
+                `every legend cell has a real (non-NaN) transform (got ${JSON.stringify(info.legendTransforms)})`
+            );
+            assert(
+                info.areaOpacities.every((o) => o === '0.35'),
+                `radar areas are at the default opacity on first render, not stuck at 0 (got ${info.areaOpacities})`
+            );
         });
 
         console.log('\nempty data');

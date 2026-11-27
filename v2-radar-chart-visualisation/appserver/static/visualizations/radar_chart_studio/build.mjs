@@ -71,29 +71,8 @@ export * from ${JSON.stringify(args.path)};
     },
 };
 
-// d3 v3's UMD bundle is an unbound IIFE - `!function() { var d3_document =
-// this.document; ... }();` - that relies on sloppy-mode semantics (a bare
-// function call binds `this` to the global object). `<script type="module">`
-// makes ALL code in the file strict per spec, including inside esbuild's CJS
-// wrapper function, so `this` is `undefined` there and `this.document` throws.
-// Bind `this` explicitly to the global object at build time instead of
-// patching node_modules.
-const d3V3GlobalThisPlugin = {
-    name: 'd3-v3-globalthis',
-    setup(pluginBuild) {
-        pluginBuild.onLoad({ filter: /[\\/]d3[\\/]d3\.js$/ }, (args) => {
-            const original = readFileSync(args.path, 'utf8');
-            const patched = original.replace(
-                /\}\(\);\s*$/,
-                '}.call(typeof window !== "undefined" ? window : globalThis);'
-            );
-            if (patched === original) {
-                throw new Error(`d3-v3-globalthis: expected trailing "}();" not found in ${args.path}`);
-            }
-            return { contents: patched, loader: 'js' };
-        });
-    },
-};
+// d3 v7 ships as proper per-module ESM (unlike v3's unbound-this UMD
+// bundle), so no build-time patching of node_modules is needed here.
 
 const buildOptions = {
     entryPoints: [entryPoint],
@@ -104,7 +83,7 @@ const buildOptions = {
     target: 'es2017',
     minify: isProduction,
     sourcemap: !isProduction,
-    plugins: [splunkCjsInteropPlugin, d3V3GlobalThisPlugin, cssInjectAndSizeWarnPlugin],
+    plugins: [splunkCjsInteropPlugin, cssInjectAndSizeWarnPlugin],
     loader: {
         '.png': 'dataurl',
         '.jpg': 'dataurl',

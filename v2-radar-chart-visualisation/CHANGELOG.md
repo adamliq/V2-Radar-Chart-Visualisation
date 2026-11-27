@@ -2,6 +2,47 @@
 
 All notable changes to the v2-radar-chart-visualisation app.
 
+## 2.3.0
+
+**radar_chart_studio** (Dashboard Studio-native visualization):
+
+- Rewrote the vendored D3 engine (`src/vendor/d3-radar-chart.js`) from d3 v3
+  against d3 v7, and bumped the `d3` dependency accordingly. The classic
+  `radar_chart` visualization is unaffected - it keeps its own
+  webpack/RequireJS build on d3 v3.
+- This surfaced and fixed a real, pre-existing-shape bug along the way: d3
+  v4+'s "general update pattern" no longer merges newly-entered elements
+  back into the selection a chained `.transition()`/`.style()` call was
+  written against (d3 v3 did this automatically). Without an explicit
+  `.merge()` at each affected join, a few elements would have been created
+  correctly but never received their settled style/attribute values until a
+  *second* render happened to re-match them by key - on a real, single
+  initial render, this would have shown as the radar areas' fill-opacity
+  stuck at 0 and empty/incompletely-wired legend cells. Fixed by merging
+  the entered selection back in at every affected join. Caught by the
+  committed regression suite, which now also directly checks for this (axis
+  line/legend counts, legend swatch/transform completeness, and area
+  opacity on a render that hasn't yet repeated).
+- Other v3 -to- v7 API changes carried through: `d3.scale.*` to
+  `d3.scaleOrdinal()`/`d3.scaleLinear()`, `d3.svg.line.radial()` to
+  `d3.lineRadial().curve(...)`, `d3.svg.symbol()` to `d3.symbol().type(...)`
+  (string symbol names mapped to v7's symbol-type constants; d3 v7 has no
+  built-in downward-pointing triangle, so `'triangle-down'` is now drawn
+  from a small custom symbol-type definition mirroring `d3.symbolTriangle`'s
+  geometry), and `.on()` event handlers' argument order (`(event, d)`
+  instead of v3's `(d, i)` - this chart's own hover/click handlers never
+  used the index, so no behavior change there). d3 v3's nested-selection
+  "group index" (a third callback argument, used for per-axis positioning)
+  is gone in v7; replaced with an explicit axis-name-to-index lookup built
+  once per render.
+- `build.mjs` no longer needs to patch d3's UMD bundle for its unbound-`this`
+  bug - that was specific to v3's bundle shape, and v7 ships proper ESM.
+  Picked up a new, unrelated-to-the-rewrite build fix instead: the `d3`
+  package declares `"sideEffects": false`, which made esbuild tree-shake
+  away `d3-transition`'s prototype patch (`selection.prototype.transition`)
+  since nothing referenced it by name - fixed with an explicit
+  side-effect-only `import 'd3-transition'`.
+
 ## 2.2.0
 
 **radar_chart_studio** (Dashboard Studio-native visualization):
